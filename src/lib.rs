@@ -73,41 +73,61 @@ fn transform_tree(pair: Pair<Rule>) -> RispValue {
     }
 }
 
+/// # Reader
+/// The function `read_risp` implements a _reader_, converting a string into an sexpression, represented by `risp::RispValue`.
+///
+/// Decimal integers are read as risp::RispValue::Int(...)
+/// ```
+/// assert_eq!(risp::read_risp("123").unwrap()[0], risp::RispValue::Int(123));
+/// ```
+/// Numbers with decimal points are considered risp::RispValue::Float(...)
+/// ```
+/// assert_eq!(risp::read_risp("3.14").unwrap()[0], risp::RispValue::Float(3.14));
+/// ```
+/// Symbols use a variety of characters, but they cannot start with a digit.
+/// ```
+/// assert_eq!(risp::read_risp("foo-BAR123?<>!@$%^&*").unwrap()[0],
+///            risp::RispValue::Symbol(String::from("foo-BAR123?<>!@$%^&*")));
+/// ```
+/// String literals begin and end with quotation marks (").
+/// ```
+/// assert_eq!(risp::read_risp("\"foo\"").unwrap()[0],
+///            risp::RispValue::String(String::from("foo")));
+/// ```
+/// Escaping is handled for ", \, n, r, and t.
+/// ```
+/// assert_eq!(risp::read_risp("\"\\\"\\\\\\n\\r\\t\"").unwrap()[0], risp::RispValue::String(String::from("\"\\\n\r\t")));
+/// ```
+/// An empty list is parsed as Nil
+/// ```
+/// assert_eq!(risp::read_risp("()").unwrap()[0], risp::RispValue::Nil);
+/// ```
+/// A list of elemens is a linked list of Cons
+/// ```
+/// assert_eq!(risp::read_risp("(1 2)").unwrap()[0],
+///            risp::RispValue::Cons(
+///                std::sync::Arc::new(risp::RispValue::Int(1)),
+///                std::sync::Arc::new(risp::RispValue::Cons(std::sync::Arc::new(risp::RispValue::Int(2)),
+///                                         std::sync::Arc::new(risp::RispValue::Nil)))));
+/// ```
+/// Brackes enclose a Cons pair
+/// ```
+/// assert_eq!(risp::read_risp("[1 2]").unwrap()[0],
+///            risp::RispValue::Cons(std::sync::Arc::new(risp::RispValue::Int(1)),
+///                                  std::sync::Arc::new(risp::RispValue::Int(2))));
+/// ```
+/// Whitespace includes spaces, tabs and line-ends (LF and CR).
+/// ```
+/// risp::read_risp("(fn foo (x y)\n\r\t(+ x y))").unwrap();
+/// ```
+/// risp::read_risp() returns a vector containing all sexpressions in the input
+/// ```
+/// assert_eq!(risp::read_risp("1 two \"three\"").unwrap(), vec![risp::RispValue::Int(1),
+///                                                               risp::RispValue::Symbol(String::from("two")),
+///                                                               risp::RispValue::String(String::from("three"))]);
+/// ```
 pub fn read_risp<'a>(text: &'a str) -> Result<Vec<RispValue>, Error<Rule>> {
     let parse_result = RispParser::parse(Rule::sexprs, text)?.next().unwrap();
     Ok(parse_result.into_inner().map(transform_tree).collect())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn reader_tests() {
-        // Decimal integers are read as RispValue::Int(...)
-        assert_eq!(read_risp("123").unwrap()[0], RispValue::Int(123));
-        // Numbers with decimal points are considered RispValue::Float(...)
-        assert_eq!(read_risp("3.14").unwrap()[0], RispValue::Float(3.14));
-        // Symbols use a variety of characters, but they cannot start with a digit.
-        assert_eq!(read_risp("foo-BAR123?<>!@$%^&*").unwrap()[0], RispValue::Symbol(String::from("foo-BAR123?<>!@$%^&*")));
-        // String literals begin and end with quotation marks (").
-        assert_eq!(read_risp("\"foo\"").unwrap()[0], RispValue::String(String::from("foo")));
-        // Escaping is handled for ", \, n, r, and t.
-        assert_eq!(read_risp("\"\\\"\\\\\\n\\r\\t\"").unwrap()[0], RispValue::String(String::from("\"\\\n\r\t")));
-        // An empty list is parsed as Nil
-        assert_eq!(read_risp("()").unwrap()[0], RispValue::Nil);
-        // A list of elemens is a linked list of Cons
-        assert_eq!(read_risp("(1 2)").unwrap()[0],
-                   RispValue::Cons(
-                       Arc::new(RispValue::Int(1)),
-                       Arc::new(RispValue::Cons(Arc::new(RispValue::Int(2)),
-                                                Arc::new(RispValue::Nil)))));
-        // Brackes enclose a Cons pair
-        assert_eq!(read_risp("[1 2]").unwrap()[0], RispValue::Cons(Arc::new(RispValue::Int(1)), Arc::new(RispValue::Int(2))));
-        // Whitespace includes spaces, tabs and line-ends (LF and CR).
-        read_risp("(fn foo (x y)\n\r\t(+ x y))").unwrap();
-        // read_risp() returns a vector containing all sexpressions in the input
-        assert_eq!(read_risp("1 two \"three\"").unwrap(), vec![RispValue::Int(1),
-                                                               RispValue::Symbol(String::from("two")),
-                                                               RispValue::String(String::from("three"))]);
-    }
-}
