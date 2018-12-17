@@ -6,6 +6,7 @@ extern crate pest_derive;
 use pest::error::Error;
 use pest::Parser;
 use pest::iterators::Pair;
+use std::sync::Arc;
 
 #[derive(Parser)]
 #[grammar = "risp.pest"]
@@ -18,6 +19,7 @@ pub enum RispValue {
     Symbol(String),
     String(String),
     Nil,
+    Cons(Arc<RispValue>, Arc<RispValue>),
 }
 
 fn unescape_char(c: char) -> char {
@@ -37,7 +39,7 @@ fn unescape(inp: &str) -> String {
             out.push(unescape_char(c));
             esc = false;
         } else {
-            if(c == '\\') {
+            if c == '\\' {
                 esc = true
             } else {
                 out.push(c);
@@ -53,9 +55,20 @@ fn transform_tree(pair: Pair<Rule>) -> RispValue {
         Rule::float => RispValue::Float(pair.as_str().parse().unwrap()),
         Rule::symbol => RispValue::Symbol(String::from(pair.as_str())),
         Rule::string => RispValue::String(unescape(pair.into_inner().next().unwrap().as_str())),
-        Rule::list => RispValue::Nil,
-        Rule::EOI
-            | Rule::decimal | Rule::symbol_start_char | Rule::chars | Rule::char
+        Rule::list => {
+            let mut elems : Vec<RispValue> = pair.into_inner().map(transform_tree).collect();
+            elems.reverse();
+            let mut list = RispValue::Nil;
+            for elem in elems {
+                list = RispValue::Cons(Arc::new(elem), Arc::new(list));
+            }
+            list
+        },
+        Rule::pair => {
+            let mut elems = pair.into_inner().map(transform_tree);
+            RispValue::Cons(Arc::new(elems.next().unwrap()), Arc::new(elems.next().unwrap()))
+        },
+        Rule::decimal | Rule::symbol_start_char | Rule::chars | Rule::char | Rule::WHITESPACE
             | Rule::sexpr => unreachable!(),
     }
 }
@@ -82,5 +95,15 @@ mod tests {
         assert_eq!(read_risp("\"\\\"\\\\\\n\\r\\t\"").unwrap(), RispValue::String(String::from("\"\\\n\r\t")));
         // An empty list is parsed as Nil
         assert_eq!(read_risp("()").unwrap(), RispValue::Nil);
+        // A list of elemens is a linked list of Cons
+        assert_eq!(read_risp("(1 2)").unwrap(),
+                   RispValue::Cons(
+                       Arc::new(RispValue::Int(1)),
+                       Arc::new(RispValue::Cons(Arc::new(RispValue::Int(2)),
+                                                Arc::new(RispValue::Nil)))));
+        // Brackes enclose a Cons pair
+        assert_eq!(read_risp("[1 2]").unwrap(), RispValue::Cons(Arc::new(RispValue::Int(1)), Arc::new(RispValue::Int(2))));
+        // Whitespace includes spaces, tabs and line-ends (LF and CR).
+        read_risp("(fn foo (x y)\n\r\t(+ x y))").unwrap();
     }
 }
