@@ -7,12 +7,13 @@ use pest::error::Error;
 use pest::Parser;
 use pest::iterators::Pair;
 use std::sync::Arc;
+use std::collections::{HashMap,HashSet};
 
 #[derive(Parser)]
 #[grammar = "risp.pest"]
 struct RispParser;
 
-#[derive(Debug,PartialEq)]
+#[derive(Debug,PartialEq,Clone)]
 pub enum RispValue {
     Int(i64),
     Float(f64),
@@ -20,6 +21,25 @@ pub enum RispValue {
     String(String),
     Nil,
     Cons(Arc<RispValue>, Arc<RispValue>),
+}
+
+pub struct StaticContext {
+    pub globals: HashMap<String, RispValue>,
+    pub locals: HashSet<String>,
+}
+
+#[derive(Debug,PartialEq)]
+pub enum CompilationError {
+    UndefinedSymbol(String),
+}
+
+impl StaticContext {
+    pub fn new() -> Self {
+        Self {
+            globals: HashMap::new(),
+            locals: HashSet::new(),
+        }
+    }
 }
 
 fn unescape_char(c: char) -> char {
@@ -74,7 +94,7 @@ fn transform_tree(pair: Pair<Rule>) -> RispValue {
 }
 
 /// # Reader
-/// The function `read_risp` implements a _reader_, converting a string into an sexpression, represented by `risp::RispValue`.
+/// The function `read_risp` implements a _reader_, converting a string into an s-expression, represented by `risp::RispValue`.
 ///
 /// Decimal integers are read as risp::RispValue::Int(...)
 /// ```
@@ -120,7 +140,7 @@ fn transform_tree(pair: Pair<Rule>) -> RispValue {
 /// ```
 /// risp::read_risp("(fn foo (x y)\n\r\t(+ x y))").unwrap();
 /// ```
-/// risp::read_risp() returns a vector containing all sexpressions in the input
+/// risp::read_risp() returns a vector containing all s-expressions in the input
 /// ```
 /// assert_eq!(risp::read_risp("1 two \"three\"").unwrap(), vec![risp::RispValue::Int(1),
 ///                                                               risp::RispValue::Symbol(String::from("two")),
@@ -131,3 +151,55 @@ pub fn read_risp<'a>(text: &'a str) -> Result<Vec<RispValue>, Error<Rule>> {
     Ok(parse_result.into_inner().map(transform_tree).collect())
 }
 
+/// # Compiler
+///
+/// The compiler (`compile` function) takes an s-expression and
+/// compiles it into a _compiled_ s-expression.
+///
+/// Scalars are left unchaged.
+/// ```
+/// let mut ctx = risp::StaticContext::new();
+/// let se1 = risp::read_risp("123").unwrap();
+/// assert_eq!(risp::compile(se1[0].clone(), &mut ctx).unwrap(), se1[0]);
+/// let se2 = risp::read_risp("123.456").unwrap();
+/// assert_eq!(risp::compile(se2[0].clone(), &mut ctx).unwrap(), se2[0]);
+/// let se3 = risp::read_risp("\"123\"").unwrap();
+/// assert_eq!(risp::compile(se3[0].clone(), &mut ctx).unwrap(), se3[0]);
+/// ```
+///
+/// Global symbols are replaced with their underlying values.
+/// ```
+/// let se = risp::read_risp("foo").unwrap();
+/// let mut ctx = risp::StaticContext::new();
+/// ctx.globals.insert(String::from("foo"), risp::RispValue::Int(2));
+/// assert_eq!(risp::compile(se[0].clone(), &mut ctx).unwrap(), risp::RispValue::Int(2));
+/// ```
+/// However, if the symbol exists in the `locals` set, it is left as-is.
+/// ```
+/// let se = risp::read_risp("foo").unwrap();
+/// let mut ctx = risp::StaticContext::new();
+/// ctx.globals.insert(String::from("foo"), risp::RispValue::Int(2));
+/// ctx.locals.insert(String::from("foo"));
+/// assert_eq!(risp::compile(se[0].clone(), &mut ctx).unwrap(), se[0]);
+/// ```
+/// If a symbol does not exist, a compilation error is returned.
+/// ```
+/// let se = risp::read_risp("foo").unwrap();
+/// let mut ctx = risp::StaticContext::new();
+/// assert_eq!(risp::compile(se[0].clone(), &mut ctx), Err(risp::CompilationError::UndefinedSymbol(String::from("foo"))));
+/// ```
+pub fn compile(sexpr: RispValue, ctx: &mut StaticContext) -> Result<RispValue, CompilationError> {
+    match sexpr {
+        RispValue::Symbol(s) => {
+            if ctx.locals.contains(&s) {
+                Ok(RispValue::Symbol(s))
+            } else {
+                match ctx.globals.get(&s) {
+                    Some(val) => Ok(val.clone()),
+                    None => Err(CompilationError::UndefinedSymbol(s)),
+                }
+            }
+        },
+        _ => Ok(sexpr),
+    }
+}
