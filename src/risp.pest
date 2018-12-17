@@ -1,0 +1,12 @@
+decimal = { ('0'..'9')+ }
+int = @{ decimal ~ (!".") }
+float = @{ decimal ~ "." ~ decimal }
+symbol_start_char = { "!" | '$'..'&' | '*'..'/' | ':'..'@' | '^'..'_' | 'a'..'z' | 'A'..'Z' }
+symbol = @{ symbol_start_char ~ (symbol_start_char | '0'..'9')* }
+string = { "\"" ~ chars ~ "\"" }
+chars = @{ char* }
+char = { (!("\"" | "\\") ~ ANY) | ("\\" ~ ANY) }
+list = { "(" ~ ")" }
+sexpr = _{ SOI ~ (int | float | symbol | string | list) ~ EOI }
+
+
