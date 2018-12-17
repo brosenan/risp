@@ -9,6 +9,7 @@ char = { (!("\"" | "\\") ~ ANY) | ("\\" ~ ANY) }
 list = { "(" ~ sexpr* ~ ")" }
 pair = { "[" ~ sexpr ~ sexpr ~ "]" }
 sexpr = _{ (int | float | symbol | string | list | pair) }
+sexprs = { sexpr* }
 WHITESPACE = _{" " | "\n" | "\r" | "\t"}
 
 
