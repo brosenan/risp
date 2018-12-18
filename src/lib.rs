@@ -23,33 +23,90 @@ pub enum RispValue {
     Cons(Arc<RispValue>, Arc<RispValue>),
 }
 
+/// This trait represents the state of compilation, defining what
+/// symbols (global, local and macros) are defiend, and in the cases
+/// of globals and macros, with which values.
 pub trait StaticContext {
+    /// Get a global value if defined, or `None` if not.
     fn get_global(&self, sym: &String) -> Option<RispValue>;
+    /// Is a local symbol defined in this context?
     fn is_local(&self, sym: &String) -> bool;
 }
 
+/// A static context that defines globals and macros.
 pub struct BasicStaticContext {
-    pub globals: HashMap<String, RispValue>,
-    pub locals: HashSet<String>,
+    globals: HashMap<String, RispValue>,
 }
 
 impl BasicStaticContext {
+    /// Construct an empty global context.
     pub fn new() -> Self {
         Self {
             globals: HashMap::new(),
-            locals: HashSet::new(),
         }
     }
+    /// Add a global symbol to the global context. For example:
+    /// ```
+    /// use risp::StaticContext;
+    /// let mut ctx = risp::BasicStaticContext::new();
+    /// ctx.define_global(String::from("foo"), risp::RispValue::Int(2));
+    /// assert_eq!(ctx.get_global(&String::from("foo")),
+    ///            Some(risp::RispValue::Int(2)));
+    /// ```
+    pub fn define_global(&mut self, sym: String, value: RispValue) {
+        self.globals.insert(sym, value);
+    }
 }
+
 impl StaticContext for BasicStaticContext {
-    fn is_local(&self, sym: &String) -> bool {
-        self.locals.contains(sym)
+    /// The local context is always empty for a BasicStaticContext.
+    /// ```
+    /// use risp::StaticContext;
+    /// let ctx = risp::BasicStaticContext::new();
+    /// assert_eq!(ctx.is_local(&String::from("foo")), false);
+    /// ```
+    fn is_local(&self, _sym: &String) -> bool {
+        false
     }
     fn get_global(&self, sym: &String) -> Option<RispValue> {
         match self.globals.get(sym) {
             None => None,
             Some(val) => Some(val.clone())
         }
+    }
+}
+/// A derived static context extends a base context, and possibly adds
+/// new local symbols. Its lifetime parameter means its base context
+/// must outlive it.
+/// ```
+/// use risp::*;
+/// let mut base = BasicStaticContext::new();
+/// base.define_global(String::from("foo"), RispValue::Int(2));
+/// let mut derived = DerivedStaticContext::new(&base);
+/// derived.add_local(String::from("bar"));
+/// assert_eq!(derived.get_global(&String::from("foo")).unwrap(),
+///            RispValue::Int(2));
+/// assert_eq!(derived.is_local(&String::from("bar")), true);
+/// assert_eq!(derived.is_local(&String::from("baz")), false);
+/// ```
+pub struct DerivedStaticContext<'a> {
+    base: &'a StaticContext,
+    locals: HashSet<String>,
+}
+impl<'a> DerivedStaticContext<'a> {
+    pub fn new(base: &'a StaticContext) -> Self {
+        Self{base, locals: HashSet::new()}
+    }
+    pub fn add_local(&mut self, sym: String) {
+        self.locals.insert(sym);
+    }
+}
+impl<'a> StaticContext for DerivedStaticContext<'a> {
+    fn is_local(&self, sym: &String) -> bool {
+        self.locals.contains(sym) || self.base.is_local(sym)
+    }
+    fn get_global(&self, sym: &String) -> Option<RispValue> {
+        self.base.get_global(sym)
     }
 }
 
@@ -187,16 +244,17 @@ pub fn read_risp<'a>(text: &'a str) -> Result<Vec<RispValue>, Error<Rule>> {
 /// ```
 /// let se = risp::read_risp("foo").unwrap();
 /// let mut ctx = risp::BasicStaticContext::new();
-/// ctx.globals.insert(String::from("foo"), risp::RispValue::Int(2));
+/// ctx.define_global(String::from("foo"), risp::RispValue::Int(2));
 /// assert_eq!(risp::compile(se[0].clone(), &mut ctx).unwrap(), risp::RispValue::Int(2));
 /// ```
 /// However, if the symbol exists in the `locals` set, it is left as-is.
 /// ```
 /// let se = risp::read_risp("foo").unwrap();
 /// let mut ctx = risp::BasicStaticContext::new();
-/// ctx.globals.insert(String::from("foo"), risp::RispValue::Int(2));
-/// ctx.locals.insert(String::from("foo"));
-/// assert_eq!(risp::compile(se[0].clone(), &mut ctx).unwrap(), se[0]);
+/// ctx.define_global(String::from("foo"), risp::RispValue::Int(2));
+/// let mut ctx2 = risp::DerivedStaticContext::new(&ctx);
+/// ctx2.add_local(String::from("foo"));
+/// assert_eq!(risp::compile(se[0].clone(), &mut ctx2).unwrap(), se[0]);
 /// ```
 /// If a symbol does not exist, a compilation error is returned.
 /// ```
@@ -204,6 +262,10 @@ pub fn read_risp<'a>(text: &'a str) -> Result<Vec<RispValue>, Error<Rule>> {
 /// let mut ctx = risp::BasicStaticContext::new();
 /// assert_eq!(risp::compile(se[0].clone(), &mut ctx), Err(risp::CompilationError::UndefinedSymbol(String::from("foo"))));
 /// ```
+///
+/// ## Macros and Special Forms
+///
+/// Macros are functions that operate during compilation.
 pub fn compile(sexpr: RispValue, ctx: &mut StaticContext) -> Result<RispValue, CompilationError> {
     match sexpr {
         RispValue::Symbol(s) => {
