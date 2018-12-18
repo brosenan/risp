@@ -95,22 +95,40 @@ impl RispValue {
         }
     }
 
-    /// Converts the s-expression to a list, assuming its length is
-    /// _at least_ the specified length. Otherwise, returns an arity
+    /// Returns the first `expected_len` elements as a vector, assuming there are
+    /// _at least_ the `expected_len` elements in the list. Otherwise, returns an arity
     /// mismatch error.
     /// ```
     /// use risp::*;
     /// let exprs = read("(1 2 3 4) (5 6)").unwrap();
     /// assert_eq!(exprs[0].to_vec_of_at_least_len(3).unwrap(),
-    ///            vec![&RispValue::Int(1), &RispValue::Int(2), &RispValue::Int(3), &RispValue::Int(4)]);
+    ///            vec![&RispValue::Int(1), &RispValue::Int(2), &RispValue::Int(3)]);
     /// assert_eq!(exprs[1].to_vec_of_at_least_len(3),
     ///            Err(CompilationError::ArityMismatch(3, 2)));
     /// ```
     pub fn to_vec_of_at_least_len<'a>(&'a self, expected_len: usize) -> Result<Vec<&'a RispValue>, CompilationError> {
         if self.len() >= expected_len {
-            Ok(self.iter().collect())
+            Ok(self.iter().take(expected_len).collect())
         } else {
             Err(CompilationError::ArityMismatch(expected_len, self.len()))
+        }
+    }
+
+    /// Returns whether or not this is a list.
+    /// ```
+    /// use risp::*;
+    /// assert_eq!(RispValue::Int(1).is_list(), false);
+    /// assert_eq!(RispValue::Nil.is_list(), true);
+    /// assert_eq!(RispValue::Cons(std::sync::Arc::new(RispValue::Int(1)),
+    ///                            std::sync::Arc::new(RispValue::Nil)).is_list(), true);
+    /// assert_eq!(RispValue::Cons(std::sync::Arc::new(RispValue::Int(1)),
+    ///                            std::sync::Arc::new(RispValue::Int(2))).is_list(), false);
+    /// ```
+    pub fn is_list(&self) -> bool {
+        match self {
+            RispValue::Nil => true,
+            RispValue::Cons(_, next) => next.is_list(),
+            _ => false,
         }
     }
 }
@@ -387,20 +405,52 @@ pub fn read<'a>(text: &'a str) -> Result<Vec<RispValue>, Error<Rule>> {
 /// if it contains macros, they are expanded.
 ///
 /// Consider a hypothetical macro `annotate`, which takes at least one
-/// argument, and returns that one argument.
+/// argument, and returns that one argument. This macro can be useful
+/// for annotating things, e.g., using the rest of the form as a
+/// comment.
+///
+/// For this macro to be available, we need to register it with the
+/// basic context. Then, when compiling an s-expression that contains
+/// this macro, it should be applied.
+/// ```
+/// use risp::*;
+/// let mut ctx = BasicStaticContext::new();
+/// ctx.define_macro(String::from("annotate"), Box::new(|expr| {
+///     let form = expr.to_vec_of_at_least_len(2)?; // The macro name and the first argument
+///     Ok(form[1].clone())
+/// }));
+/// let program = read("(annotate 1 2 3 4)").unwrap();
+/// assert_eq!(compile(program[0].clone(), &mut ctx).unwrap(), RispValue::Int(1));
+/// ```
 pub fn compile(sexpr: RispValue, ctx: &mut StaticContext) -> Result<RispValue, CompilationError> {
-    match sexpr {
-        RispValue::Symbol(s) => {
-            if ctx.is_local(&s) {
-                Ok(RispValue::Symbol(s))
-            } else {
-                match ctx.get_global(&s) {
-                    Some(val) => Ok(val.clone()),
-                    None => Err(CompilationError::UndefinedSymbol(s)),
+    if sexpr.is_list() {
+        if let Some(s) = get_initial_symbol(&sexpr)? {
+            let m = ctx.get_macro(&s).unwrap();
+            m(sexpr)
+        } else {
+            unreachable!()
+        }
+    } else {
+        match sexpr {
+            RispValue::Symbol(s) => {
+                if ctx.is_local(&s) {
+                    Ok(RispValue::Symbol(s))
+                } else {
+                    match ctx.get_global(&s) {
+                        Some(val) => Ok(val.clone()),
+                        None => Err(CompilationError::UndefinedSymbol(s)),
+                    }
                 }
-            }
-        },
-        _ => Ok(sexpr),
+            },
+            _ => Ok(sexpr),
+        }
     }
 }
 
+fn get_initial_symbol(sexpr: &RispValue) -> Result<Option<String>, CompilationError> {
+    if let [RispValue::Symbol(s)] = sexpr.to_vec_of_at_least_len(1)?.as_slice() {
+        Ok(Some(s.to_string()))
+    } else {
+        Ok(None)
+    }
+}
