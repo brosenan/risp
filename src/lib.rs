@@ -9,6 +9,7 @@ use pest::iterators::Pair;
 use std::sync::Arc;
 use std::collections::{HashMap,HashSet};
 use std::ops::Deref;
+use std::iter::FromIterator;
 
 #[derive(Parser)]
 #[grammar = "risp.pest"]
@@ -130,6 +131,23 @@ impl RispValue {
             RispValue::Cons(_, next) => next.is_list(),
             _ => false,
         }
+    }
+}
+
+/// `RispValue` implements `FromIterator`, so that containers
+/// containing `RispValue`s can be `collect`ed into risp lists.
+/// ```
+/// use risp::*;
+/// let v: Vec<RispValue> =
+///     vec![1, 2, 3].into_iter().map(|x| RispValue::Int(x)).collect();
+/// let l: RispValue = v.into_iter().collect();
+/// assert_eq!(l.len(), 3);
+/// ```
+impl FromIterator<RispValue> for RispValue {
+    fn from_iter<I>(initer: I) -> Self
+    where I: IntoIterator<Item = RispValue> {
+        let vec : Vec<RispValue> = initer.into_iter().collect();
+        vec_to_list(vec)
     }
 }
 
@@ -273,6 +291,16 @@ fn unescape(inp: &str) -> String {
     out
 }
 
+fn vec_to_list(vec: Vec<RispValue>) -> RispValue {
+    let mut elems = vec;
+    elems.reverse();
+    let mut list = RispValue::Nil;
+    for elem in elems {
+        list = RispValue::Cons(Arc::new(elem), Arc::new(list));
+    }
+    list
+}
+
 fn transform_tree(pair: Pair<Rule>) -> RispValue {
     match pair.as_rule() {
         Rule::int => RispValue::Int(pair.as_str().parse().unwrap()),
@@ -281,12 +309,7 @@ fn transform_tree(pair: Pair<Rule>) -> RispValue {
         Rule::string => RispValue::String(unescape(pair.into_inner().next().unwrap().as_str())),
         Rule::list => {
             let mut elems : Vec<RispValue> = pair.into_inner().map(transform_tree).collect();
-            elems.reverse();
-            let mut list = RispValue::Nil;
-            for elem in elems {
-                list = RispValue::Cons(Arc::new(elem), Arc::new(list));
-            }
-            list
+            vec_to_list(elems)
         },
         Rule::pair => {
             let mut elems = pair.into_inner().map(transform_tree);

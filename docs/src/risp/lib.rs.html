@@ -454,6 +454,29 @@
 <span id="454">454</span>
 <span id="455">455</span>
 <span id="456">456</span>
+<span id="457">457</span>
+<span id="458">458</span>
+<span id="459">459</span>
+<span id="460">460</span>
+<span id="461">461</span>
+<span id="462">462</span>
+<span id="463">463</span>
+<span id="464">464</span>
+<span id="465">465</span>
+<span id="466">466</span>
+<span id="467">467</span>
+<span id="468">468</span>
+<span id="469">469</span>
+<span id="470">470</span>
+<span id="471">471</span>
+<span id="472">472</span>
+<span id="473">473</span>
+<span id="474">474</span>
+<span id="475">475</span>
+<span id="476">476</span>
+<span id="477">477</span>
+<span id="478">478</span>
+<span id="479">479</span>
 </pre><div class="example-wrap"><pre class="rust ">
 <span class="kw">extern</span> <span class="kw">crate</span> <span class="ident">pest</span>;
 <span class="attribute">#[<span class="ident">macro_use</span>]</span>
@@ -466,6 +489,7 @@
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">sync</span>::<span class="ident">Arc</span>;
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">collections</span>::{<span class="ident">HashMap</span>,<span class="ident">HashSet</span>};
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">ops</span>::<span class="ident">Deref</span>;
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">iter</span>::<span class="ident">FromIterator</span>;
 
 <span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Parser</span>)]</span>
 <span class="attribute">#[<span class="ident">grammar</span> <span class="op">=</span> <span class="string">&quot;risp.pest&quot;</span>]</span>
@@ -587,6 +611,23 @@
             <span class="ident">RispValue</span>::<span class="ident">Cons</span>(<span class="kw">_</span>, <span class="ident">next</span>) <span class="op">=&gt;</span> <span class="ident">next</span>.<span class="ident">is_list</span>(),
             <span class="kw">_</span> <span class="op">=&gt;</span> <span class="bool-val">false</span>,
         }
+    }
+}
+
+<span class="doccomment">/// `RispValue` implements `FromIterator`, so that containers</span>
+<span class="doccomment">/// containing `RispValue`s can be `collect`ed into risp lists.</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// use risp::*;</span>
+<span class="doccomment">/// let v: Vec&lt;RispValue&gt; =</span>
+<span class="doccomment">///     vec![1, 2, 3].into_iter().map(|x| RispValue::Int(x)).collect();</span>
+<span class="doccomment">/// let l: RispValue = v.into_iter().collect();</span>
+<span class="doccomment">/// assert_eq!(l.len(), 3);</span>
+<span class="doccomment">/// ```</span>
+<span class="kw">impl</span> <span class="ident">FromIterator</span><span class="op">&lt;</span><span class="ident">RispValue</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="ident">RispValue</span> {
+    <span class="kw">fn</span> <span class="ident">from_iter</span><span class="op">&lt;</span><span class="ident">I</span><span class="op">&gt;</span>(<span class="ident">initer</span>: <span class="ident">I</span>) <span class="op">-&gt;</span> <span class="self">Self</span>
+    <span class="kw">where</span> <span class="ident">I</span>: <span class="ident">IntoIterator</span><span class="op">&lt;</span><span class="ident">Item</span> <span class="op">=</span> <span class="ident">RispValue</span><span class="op">&gt;</span> {
+        <span class="kw">let</span> <span class="ident">vec</span> : <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">RispValue</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">initer</span>.<span class="ident">into_iter</span>().<span class="ident">collect</span>();
+        <span class="ident">vec_to_list</span>(<span class="ident">vec</span>)
     }
 }
 
@@ -730,6 +771,16 @@
     <span class="ident">out</span>
 }
 
+<span class="kw">fn</span> <span class="ident">vec_to_list</span>(<span class="ident">vec</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">RispValue</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">RispValue</span> {
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">elems</span> <span class="op">=</span> <span class="ident">vec</span>;
+    <span class="ident">elems</span>.<span class="ident">reverse</span>();
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">list</span> <span class="op">=</span> <span class="ident">RispValue</span>::<span class="ident">Nil</span>;
+    <span class="kw">for</span> <span class="ident">elem</span> <span class="kw">in</span> <span class="ident">elems</span> {
+        <span class="ident">list</span> <span class="op">=</span> <span class="ident">RispValue</span>::<span class="ident">Cons</span>(<span class="ident">Arc</span>::<span class="ident">new</span>(<span class="ident">elem</span>), <span class="ident">Arc</span>::<span class="ident">new</span>(<span class="ident">list</span>));
+    }
+    <span class="ident">list</span>
+}
+
 <span class="kw">fn</span> <span class="ident">transform_tree</span>(<span class="ident">pair</span>: <span class="ident">Pair</span><span class="op">&lt;</span><span class="ident">Rule</span><span class="op">&gt;</span>) <span class="op">-&gt;</span> <span class="ident">RispValue</span> {
     <span class="kw">match</span> <span class="ident">pair</span>.<span class="ident">as_rule</span>() {
         <span class="ident">Rule</span>::<span class="ident">int</span> <span class="op">=&gt;</span> <span class="ident">RispValue</span>::<span class="ident">Int</span>(<span class="ident">pair</span>.<span class="ident">as_str</span>().<span class="ident">parse</span>().<span class="ident">unwrap</span>()),
@@ -738,12 +789,7 @@
         <span class="ident">Rule</span>::<span class="ident">string</span> <span class="op">=&gt;</span> <span class="ident">RispValue</span>::<span class="ident">String</span>(<span class="ident">unescape</span>(<span class="ident">pair</span>.<span class="ident">into_inner</span>().<span class="ident">next</span>().<span class="ident">unwrap</span>().<span class="ident">as_str</span>())),
         <span class="ident">Rule</span>::<span class="ident">list</span> <span class="op">=&gt;</span> {
             <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">elems</span> : <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">RispValue</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">pair</span>.<span class="ident">into_inner</span>().<span class="ident">map</span>(<span class="ident">transform_tree</span>).<span class="ident">collect</span>();
-            <span class="ident">elems</span>.<span class="ident">reverse</span>();
-            <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">list</span> <span class="op">=</span> <span class="ident">RispValue</span>::<span class="ident">Nil</span>;
-            <span class="kw">for</span> <span class="ident">elem</span> <span class="kw">in</span> <span class="ident">elems</span> {
-                <span class="ident">list</span> <span class="op">=</span> <span class="ident">RispValue</span>::<span class="ident">Cons</span>(<span class="ident">Arc</span>::<span class="ident">new</span>(<span class="ident">elem</span>), <span class="ident">Arc</span>::<span class="ident">new</span>(<span class="ident">list</span>));
-            }
-            <span class="ident">list</span>
+            <span class="ident">vec_to_list</span>(<span class="ident">elems</span>)
         },
         <span class="ident">Rule</span>::<span class="ident">pair</span> <span class="op">=&gt;</span> {
             <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">elems</span> <span class="op">=</span> <span class="ident">pair</span>.<span class="ident">into_inner</span>().<span class="ident">map</span>(<span class="ident">transform_tree</span>);
