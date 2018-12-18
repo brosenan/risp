@@ -23,23 +23,39 @@ pub enum RispValue {
     Cons(Arc<RispValue>, Arc<RispValue>),
 }
 
-pub struct StaticContext {
+pub trait StaticContext {
+    fn get_global(&self, sym: &String) -> Option<RispValue>;
+    fn is_local(&self, sym: &String) -> bool;
+}
+
+pub struct BasicStaticContext {
     pub globals: HashMap<String, RispValue>,
     pub locals: HashSet<String>,
 }
 
-#[derive(Debug,PartialEq)]
-pub enum CompilationError {
-    UndefinedSymbol(String),
-}
-
-impl StaticContext {
+impl BasicStaticContext {
     pub fn new() -> Self {
         Self {
             globals: HashMap::new(),
             locals: HashSet::new(),
         }
     }
+}
+impl StaticContext for BasicStaticContext {
+    fn is_local(&self, sym: &String) -> bool {
+        self.locals.contains(sym)
+    }
+    fn get_global(&self, sym: &String) -> Option<RispValue> {
+        match self.globals.get(sym) {
+            None => None,
+            Some(val) => Some(val.clone())
+        }
+    }
+}
+
+#[derive(Debug,PartialEq)]
+pub enum CompilationError {
+    UndefinedSymbol(String),
 }
 
 fn unescape_char(c: char) -> char {
@@ -158,7 +174,7 @@ pub fn read_risp<'a>(text: &'a str) -> Result<Vec<RispValue>, Error<Rule>> {
 ///
 /// Scalars are left unchaged.
 /// ```
-/// let mut ctx = risp::StaticContext::new();
+/// let mut ctx = risp::BasicStaticContext::new();
 /// let se1 = risp::read_risp("123").unwrap();
 /// assert_eq!(risp::compile(se1[0].clone(), &mut ctx).unwrap(), se1[0]);
 /// let se2 = risp::read_risp("123.456").unwrap();
@@ -170,14 +186,14 @@ pub fn read_risp<'a>(text: &'a str) -> Result<Vec<RispValue>, Error<Rule>> {
 /// Global symbols are replaced with their underlying values.
 /// ```
 /// let se = risp::read_risp("foo").unwrap();
-/// let mut ctx = risp::StaticContext::new();
+/// let mut ctx = risp::BasicStaticContext::new();
 /// ctx.globals.insert(String::from("foo"), risp::RispValue::Int(2));
 /// assert_eq!(risp::compile(se[0].clone(), &mut ctx).unwrap(), risp::RispValue::Int(2));
 /// ```
 /// However, if the symbol exists in the `locals` set, it is left as-is.
 /// ```
 /// let se = risp::read_risp("foo").unwrap();
-/// let mut ctx = risp::StaticContext::new();
+/// let mut ctx = risp::BasicStaticContext::new();
 /// ctx.globals.insert(String::from("foo"), risp::RispValue::Int(2));
 /// ctx.locals.insert(String::from("foo"));
 /// assert_eq!(risp::compile(se[0].clone(), &mut ctx).unwrap(), se[0]);
@@ -185,16 +201,16 @@ pub fn read_risp<'a>(text: &'a str) -> Result<Vec<RispValue>, Error<Rule>> {
 /// If a symbol does not exist, a compilation error is returned.
 /// ```
 /// let se = risp::read_risp("foo").unwrap();
-/// let mut ctx = risp::StaticContext::new();
+/// let mut ctx = risp::BasicStaticContext::new();
 /// assert_eq!(risp::compile(se[0].clone(), &mut ctx), Err(risp::CompilationError::UndefinedSymbol(String::from("foo"))));
 /// ```
 pub fn compile(sexpr: RispValue, ctx: &mut StaticContext) -> Result<RispValue, CompilationError> {
     match sexpr {
         RispValue::Symbol(s) => {
-            if ctx.locals.contains(&s) {
+            if ctx.is_local(&s) {
                 Ok(RispValue::Symbol(s))
             } else {
-                match ctx.globals.get(&s) {
+                match ctx.get_global(&s) {
                     Some(val) => Ok(val.clone()),
                     None => Err(CompilationError::UndefinedSymbol(s)),
                 }
