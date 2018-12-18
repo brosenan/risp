@@ -58,6 +58,61 @@ impl RispValue {
     pub fn iter<'a>(&'a self) -> RispIter<'a> {
         RispIter{curr: self}
     }
+
+    /// Returns the length of a list.
+    /// ```
+    /// use risp::*;
+    /// let exprs = read("(1 2 3) 4").unwrap();
+    /// assert_eq!(exprs[0].len(), 3);
+    /// assert_eq!(exprs[1].len(), 0);
+    /// ```
+    pub fn len(&self) -> usize {
+        let mut curr = self;
+        let mut i = 0;
+        while let RispValue::Cons(_, next) = curr {
+            curr = next;
+            i += 1;
+        }
+        i
+    }
+
+    /// Returns a vector of the given size if this expression is
+    /// exactly the specified length. Otherwise, returns an arity
+    /// mismatch error.
+    /// ```
+    /// use risp::*;
+    /// let exprs = read("(1 2 3) (4 5)").unwrap();
+    /// assert_eq!(exprs[0].to_vec_of_len(3).unwrap(),
+    ///            vec![&RispValue::Int(1), &RispValue::Int(2), &RispValue::Int(3)]);
+    /// assert_eq!(exprs[1].to_vec_of_len(3),
+    ///            Err(CompilationError::ArityMismatch(3, 2)));
+    /// ```
+    pub fn to_vec_of_len<'a>(&'a self, expected_len: usize) -> Result<Vec<&'a RispValue>, CompilationError> {
+        if self.len() == expected_len {
+            Ok(self.iter().collect())
+        } else {
+            Err(CompilationError::ArityMismatch(expected_len, self.len()))
+        }
+    }
+
+    /// Converts the s-expression to a list, assuming its length is
+    /// _at least_ the specified length. Otherwise, returns an arity
+    /// mismatch error.
+    /// ```
+    /// use risp::*;
+    /// let exprs = read("(1 2 3 4) (5 6)").unwrap();
+    /// assert_eq!(exprs[0].to_vec_of_at_least_len(3).unwrap(),
+    ///            vec![&RispValue::Int(1), &RispValue::Int(2), &RispValue::Int(3), &RispValue::Int(4)]);
+    /// assert_eq!(exprs[1].to_vec_of_at_least_len(3),
+    ///            Err(CompilationError::ArityMismatch(3, 2)));
+    /// ```
+    pub fn to_vec_of_at_least_len<'a>(&'a self, expected_len: usize) -> Result<Vec<&'a RispValue>, CompilationError> {
+        if self.len() >= expected_len {
+            Ok(self.iter().collect())
+        } else {
+            Err(CompilationError::ArityMismatch(expected_len, self.len()))
+        }
+    }
 }
 
 /// This trait represents the state of compilation, defining what
@@ -170,6 +225,7 @@ impl<'a> StaticContext for DerivedStaticContext<'a> {
 #[derive(Debug,PartialEq)]
 pub enum CompilationError {
     UndefinedSymbol(String),
+    ArityMismatch(usize, usize),
 }
 
 fn unescape_char(c: char) -> char {
@@ -304,7 +360,7 @@ pub fn read<'a>(text: &'a str) -> Result<Vec<RispValue>, Error<Rule>> {
 /// ctx.define_global(String::from("foo"), risp::RispValue::Int(2));
 /// assert_eq!(risp::compile(se[0].clone(), &mut ctx).unwrap(), risp::RispValue::Int(2));
 /// ```
-/// However, if the symbol exists in the `locals` set, it is left as-is.
+/// However, if the symbol exists as a local symbol, it is left as-is.
 /// ```
 /// let se = risp::read("foo").unwrap();
 /// let mut ctx = risp::BasicStaticContext::new();

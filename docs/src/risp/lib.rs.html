@@ -348,6 +348,62 @@
 <span id="348">348</span>
 <span id="349">349</span>
 <span id="350">350</span>
+<span id="351">351</span>
+<span id="352">352</span>
+<span id="353">353</span>
+<span id="354">354</span>
+<span id="355">355</span>
+<span id="356">356</span>
+<span id="357">357</span>
+<span id="358">358</span>
+<span id="359">359</span>
+<span id="360">360</span>
+<span id="361">361</span>
+<span id="362">362</span>
+<span id="363">363</span>
+<span id="364">364</span>
+<span id="365">365</span>
+<span id="366">366</span>
+<span id="367">367</span>
+<span id="368">368</span>
+<span id="369">369</span>
+<span id="370">370</span>
+<span id="371">371</span>
+<span id="372">372</span>
+<span id="373">373</span>
+<span id="374">374</span>
+<span id="375">375</span>
+<span id="376">376</span>
+<span id="377">377</span>
+<span id="378">378</span>
+<span id="379">379</span>
+<span id="380">380</span>
+<span id="381">381</span>
+<span id="382">382</span>
+<span id="383">383</span>
+<span id="384">384</span>
+<span id="385">385</span>
+<span id="386">386</span>
+<span id="387">387</span>
+<span id="388">388</span>
+<span id="389">389</span>
+<span id="390">390</span>
+<span id="391">391</span>
+<span id="392">392</span>
+<span id="393">393</span>
+<span id="394">394</span>
+<span id="395">395</span>
+<span id="396">396</span>
+<span id="397">397</span>
+<span id="398">398</span>
+<span id="399">399</span>
+<span id="400">400</span>
+<span id="401">401</span>
+<span id="402">402</span>
+<span id="403">403</span>
+<span id="404">404</span>
+<span id="405">405</span>
+<span id="406">406</span>
 </pre><div class="example-wrap"><pre class="rust ">
 <span class="kw">extern</span> <span class="kw">crate</span> <span class="ident">pest</span>;
 <span class="attribute">#[<span class="ident">macro_use</span>]</span>
@@ -408,6 +464,61 @@
     <span class="doccomment">/// ```</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">iter</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">RispIter</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span> {
         <span class="ident">RispIter</span>{<span class="ident">curr</span>: <span class="self">self</span>}
+    }
+
+    <span class="doccomment">/// Returns the length of a list.</span>
+    <span class="doccomment">/// ```</span>
+    <span class="doccomment">/// use risp::*;</span>
+    <span class="doccomment">/// let exprs = read(&quot;(1 2 3) 4&quot;).unwrap();</span>
+    <span class="doccomment">/// assert_eq!(exprs[0].len(), 3);</span>
+    <span class="doccomment">/// assert_eq!(exprs[1].len(), 0);</span>
+    <span class="doccomment">/// ```</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">len</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-&gt;</span> <span class="ident">usize</span> {
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">curr</span> <span class="op">=</span> <span class="self">self</span>;
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">i</span> <span class="op">=</span> <span class="number">0</span>;
+        <span class="kw">while</span> <span class="kw">let</span> <span class="ident">RispValue</span>::<span class="ident">Cons</span>(<span class="kw">_</span>, <span class="ident">next</span>) <span class="op">=</span> <span class="ident">curr</span> {
+            <span class="ident">curr</span> <span class="op">=</span> <span class="ident">next</span>;
+            <span class="ident">i</span> <span class="op">+=</span> <span class="number">1</span>;
+        }
+        <span class="ident">i</span>
+    }
+
+    <span class="doccomment">/// Returns a vector of the given size if this expression is</span>
+    <span class="doccomment">/// exactly the specified length. Otherwise, returns an arity</span>
+    <span class="doccomment">/// mismatch error.</span>
+    <span class="doccomment">/// ```</span>
+    <span class="doccomment">/// use risp::*;</span>
+    <span class="doccomment">/// let exprs = read(&quot;(1 2 3) (4 5)&quot;).unwrap();</span>
+    <span class="doccomment">/// assert_eq!(exprs[0].to_vec_of_len(3).unwrap(),</span>
+    <span class="doccomment">///            vec![&amp;RispValue::Int(1), &amp;RispValue::Int(2), &amp;RispValue::Int(3)]);</span>
+    <span class="doccomment">/// assert_eq!(exprs[1].to_vec_of_len(3),</span>
+    <span class="doccomment">///            Err(CompilationError::ArityMismatch(3, 2)));</span>
+    <span class="doccomment">/// ```</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">to_vec_of_len</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="self">self</span>, <span class="ident">expected_len</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">Vec</span><span class="op">&lt;</span><span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">RispValue</span><span class="op">&gt;</span>, <span class="ident">CompilationError</span><span class="op">&gt;</span> {
+        <span class="kw">if</span> <span class="self">self</span>.<span class="ident">len</span>() <span class="op">==</span> <span class="ident">expected_len</span> {
+            <span class="prelude-val">Ok</span>(<span class="self">self</span>.<span class="ident">iter</span>().<span class="ident">collect</span>())
+        } <span class="kw">else</span> {
+            <span class="prelude-val">Err</span>(<span class="ident">CompilationError</span>::<span class="ident">ArityMismatch</span>(<span class="ident">expected_len</span>, <span class="self">self</span>.<span class="ident">len</span>()))
+        }
+    }
+
+    <span class="doccomment">/// Converts the s-expression to a list, assuming its length is</span>
+    <span class="doccomment">/// _at least_ the specified length. Otherwise, returns an arity</span>
+    <span class="doccomment">/// mismatch error.</span>
+    <span class="doccomment">/// ```</span>
+    <span class="doccomment">/// use risp::*;</span>
+    <span class="doccomment">/// let exprs = read(&quot;(1 2 3 4) (5 6)&quot;).unwrap();</span>
+    <span class="doccomment">/// assert_eq!(exprs[0].to_vec_of_at_least_len(3).unwrap(),</span>
+    <span class="doccomment">///            vec![&amp;RispValue::Int(1), &amp;RispValue::Int(2), &amp;RispValue::Int(3), &amp;RispValue::Int(4)]);</span>
+    <span class="doccomment">/// assert_eq!(exprs[1].to_vec_of_at_least_len(3),</span>
+    <span class="doccomment">///            Err(CompilationError::ArityMismatch(3, 2)));</span>
+    <span class="doccomment">/// ```</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">to_vec_of_at_least_len</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="self">self</span>, <span class="ident">expected_len</span>: <span class="ident">usize</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">Vec</span><span class="op">&lt;</span><span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">RispValue</span><span class="op">&gt;</span>, <span class="ident">CompilationError</span><span class="op">&gt;</span> {
+        <span class="kw">if</span> <span class="self">self</span>.<span class="ident">len</span>() <span class="op">&gt;=</span> <span class="ident">expected_len</span> {
+            <span class="prelude-val">Ok</span>(<span class="self">self</span>.<span class="ident">iter</span>().<span class="ident">collect</span>())
+        } <span class="kw">else</span> {
+            <span class="prelude-val">Err</span>(<span class="ident">CompilationError</span>::<span class="ident">ArityMismatch</span>(<span class="ident">expected_len</span>, <span class="self">self</span>.<span class="ident">len</span>()))
+        }
     }
 }
 
@@ -521,6 +632,7 @@
 <span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>,<span class="ident">PartialEq</span>)]</span>
 <span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">CompilationError</span> {
     <span class="ident">UndefinedSymbol</span>(<span class="ident">String</span>),
+    <span class="ident">ArityMismatch</span>(<span class="ident">usize</span>, <span class="ident">usize</span>),
 }
 
 <span class="kw">fn</span> <span class="ident">unescape_char</span>(<span class="ident">c</span>: <span class="ident">char</span>) <span class="op">-&gt;</span> <span class="ident">char</span> {
@@ -655,7 +767,7 @@
 <span class="doccomment">/// ctx.define_global(String::from(&quot;foo&quot;), risp::RispValue::Int(2));</span>
 <span class="doccomment">/// assert_eq!(risp::compile(se[0].clone(), &amp;mut ctx).unwrap(), risp::RispValue::Int(2));</span>
 <span class="doccomment">/// ```</span>
-<span class="doccomment">/// However, if the symbol exists in the `locals` set, it is left as-is.</span>
+<span class="doccomment">/// However, if the symbol exists as a local symbol, it is left as-is.</span>
 <span class="doccomment">/// ```</span>
 <span class="doccomment">/// let se = risp::read(&quot;foo&quot;).unwrap();</span>
 <span class="doccomment">/// let mut ctx = risp::BasicStaticContext::new();</span>

@@ -11,6 +11,7 @@ ALIASES['risp'] = {};
 ALIASES['risp'] = {};
 ALIASES['risp'] = {};
 ALIASES['risp'] = {};
+ALIASES['risp'] = {};
 ALIASES['syn'] = {};
 ALIASES['ucd_trie'] = {};
 ALIASES['unicode_xid'] = {};
