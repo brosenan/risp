@@ -8,6 +8,7 @@ use pest::Parser;
 use pest::iterators::Pair;
 use std::sync::Arc;
 use std::collections::{HashMap,HashSet};
+use std::ops::Deref;
 
 #[derive(Parser)]
 #[grammar = "risp.pest"]
@@ -23,6 +24,42 @@ pub enum RispValue {
     Cons(Arc<RispValue>, Arc<RispValue>),
 }
 
+/// An iterator for s-expressions.
+pub struct RispIter<'a> {
+    curr: &'a RispValue,
+}
+
+impl<'a> Iterator for RispIter<'a> {
+    type Item = &'a RispValue;
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.curr {
+            RispValue::Cons(item, next) => {
+                self.curr = next;
+                Some(item)
+            },
+            _ => None
+        }
+    }
+}
+
+impl RispValue {
+    /// The `iter` method constructs an iterator to traverse an
+    /// s-expression. Given a list, it will traverse all items in the
+    /// list.
+    /// ```
+    /// use risp::*;
+    /// let sexprs = read("(1 2 3)").unwrap();
+    /// let mut i = sexprs[0].iter();
+    /// assert_eq!(i.next(), Some(&RispValue::Int(1)));
+    /// assert_eq!(i.next(), Some(&RispValue::Int(2)));
+    /// assert_eq!(i.next(), Some(&RispValue::Int(3)));
+    /// assert_eq!(i.next(), None);
+    /// ```
+    pub fn iter<'a>(&'a self) -> RispIter<'a> {
+        RispIter{curr: self}
+    }
+}
+
 /// This trait represents the state of compilation, defining what
 /// symbols (global, local and macros) are defiend, and in the cases
 /// of globals and macros, with which values.
@@ -31,11 +68,27 @@ pub trait StaticContext {
     fn get_global(&self, sym: &String) -> Option<RispValue>;
     /// Is a local symbol defined in this context?
     fn is_local(&self, sym: &String) -> bool;
+    /// Get a macro of the given name, if exists. A macro is
+    /// represented as a function from `RispValue` containing the
+    /// form, and returns a `Result` of type `RispValue` containing
+    /// the form to replace it with.
+    fn get_macro<'a>(&'a self, sym: &String) -> Option<&'a Fn(RispValue) -> Result<RispValue, CompilationError>>;
 }
 
-/// A static context that defines globals and macros.
+/// A static context that defines globals and macros. It contains no locals.
+/// ```
+/// use risp::*;
+/// let mut ctx = BasicStaticContext::new();
+/// ctx.define_global(String::from("foo"), RispValue::Int(2));
+/// ctx.define_macro(String::from("m"), Box::new(|x| Ok(x)));
+/// assert_eq!(ctx.get_global(&String::from("foo")),
+///            Some(RispValue::Int(2)));
+/// assert_eq!(ctx.is_local(&String::from("foo")), false);
+/// let m = ctx.get_macro(&String::from("m")).unwrap();
+/// ```
 pub struct BasicStaticContext {
     globals: HashMap<String, RispValue>,
+    macros: HashMap<String, Box<Fn(RispValue) -> Result<RispValue, CompilationError>>>,
 }
 
 impl BasicStaticContext {
@@ -43,28 +96,21 @@ impl BasicStaticContext {
     pub fn new() -> Self {
         Self {
             globals: HashMap::new(),
+            macros: HashMap::new(),
         }
     }
     /// Add a global symbol to the global context. For example:
-    /// ```
-    /// use risp::StaticContext;
-    /// let mut ctx = risp::BasicStaticContext::new();
-    /// ctx.define_global(String::from("foo"), risp::RispValue::Int(2));
-    /// assert_eq!(ctx.get_global(&String::from("foo")),
-    ///            Some(risp::RispValue::Int(2)));
-    /// ```
     pub fn define_global(&mut self, sym: String, value: RispValue) {
         self.globals.insert(sym, value);
+    }
+
+    /// Define a macro.
+    pub fn define_macro(&mut self, sym: String, macro_fun: Box<Fn(RispValue) -> Result<RispValue, CompilationError>>) {
+        self.macros.insert(sym, macro_fun);
     }
 }
 
 impl StaticContext for BasicStaticContext {
-    /// The local context is always empty for a BasicStaticContext.
-    /// ```
-    /// use risp::StaticContext;
-    /// let ctx = risp::BasicStaticContext::new();
-    /// assert_eq!(ctx.is_local(&String::from("foo")), false);
-    /// ```
     fn is_local(&self, _sym: &String) -> bool {
         false
     }
@@ -72,6 +118,12 @@ impl StaticContext for BasicStaticContext {
         match self.globals.get(sym) {
             None => None,
             Some(val) => Some(val.clone())
+        }
+    }
+    fn get_macro<'a>(&'a self, sym: &String) -> Option<&'a Fn(RispValue) -> Result<RispValue, CompilationError>> {
+        match self.macros.get(sym) {
+            None => None,
+            Some(m) => Some(m.deref()),
         }
     }
 }
@@ -82,10 +134,12 @@ impl StaticContext for BasicStaticContext {
 /// use risp::*;
 /// let mut base = BasicStaticContext::new();
 /// base.define_global(String::from("foo"), RispValue::Int(2));
+/// base.define_macro(String::from("m"), Box::new(|x| Ok(x)));
 /// let mut derived = DerivedStaticContext::new(&base);
 /// derived.add_local(String::from("bar"));
 /// assert_eq!(derived.get_global(&String::from("foo")).unwrap(),
 ///            RispValue::Int(2));
+/// let m = derived.get_macro(&String::from("m")).unwrap();
 /// assert_eq!(derived.is_local(&String::from("bar")), true);
 /// assert_eq!(derived.is_local(&String::from("baz")), false);
 /// ```
@@ -107,6 +161,9 @@ impl<'a> StaticContext for DerivedStaticContext<'a> {
     }
     fn get_global(&self, sym: &String) -> Option<RispValue> {
         self.base.get_global(sym)
+    }
+    fn get_macro<'b>(&'b self, sym: &String) -> Option<&'b Fn(RispValue) -> Result<RispValue, CompilationError>> {
+        self.base.get_macro(sym)
     }
 }
 
@@ -167,37 +224,37 @@ fn transform_tree(pair: Pair<Rule>) -> RispValue {
 }
 
 /// # Reader
-/// The function `read_risp` implements a _reader_, converting a string into an s-expression, represented by `risp::RispValue`.
+/// The function `read` implements a _reader_, converting a string into an s-expression, represented by `risp::RispValue`.
 ///
 /// Decimal integers are read as risp::RispValue::Int(...)
 /// ```
-/// assert_eq!(risp::read_risp("123").unwrap()[0], risp::RispValue::Int(123));
+/// assert_eq!(risp::read("123").unwrap()[0], risp::RispValue::Int(123));
 /// ```
 /// Numbers with decimal points are considered risp::RispValue::Float(...)
 /// ```
-/// assert_eq!(risp::read_risp("3.14").unwrap()[0], risp::RispValue::Float(3.14));
+/// assert_eq!(risp::read("3.14").unwrap()[0], risp::RispValue::Float(3.14));
 /// ```
 /// Symbols use a variety of characters, but they cannot start with a digit.
 /// ```
-/// assert_eq!(risp::read_risp("foo-BAR123?<>!@$%^&*").unwrap()[0],
+/// assert_eq!(risp::read("foo-BAR123?<>!@$%^&*").unwrap()[0],
 ///            risp::RispValue::Symbol(String::from("foo-BAR123?<>!@$%^&*")));
 /// ```
 /// String literals begin and end with quotation marks (").
 /// ```
-/// assert_eq!(risp::read_risp("\"foo\"").unwrap()[0],
+/// assert_eq!(risp::read("\"foo\"").unwrap()[0],
 ///            risp::RispValue::String(String::from("foo")));
 /// ```
 /// Escaping is handled for ", \, n, r, and t.
 /// ```
-/// assert_eq!(risp::read_risp("\"\\\"\\\\\\n\\r\\t\"").unwrap()[0], risp::RispValue::String(String::from("\"\\\n\r\t")));
+/// assert_eq!(risp::read("\"\\\"\\\\\\n\\r\\t\"").unwrap()[0], risp::RispValue::String(String::from("\"\\\n\r\t")));
 /// ```
 /// An empty list is parsed as Nil
 /// ```
-/// assert_eq!(risp::read_risp("()").unwrap()[0], risp::RispValue::Nil);
+/// assert_eq!(risp::read("()").unwrap()[0], risp::RispValue::Nil);
 /// ```
 /// A list of elemens is a linked list of Cons
 /// ```
-/// assert_eq!(risp::read_risp("(1 2)").unwrap()[0],
+/// assert_eq!(risp::read("(1 2)").unwrap()[0],
 ///            risp::RispValue::Cons(
 ///                std::sync::Arc::new(risp::RispValue::Int(1)),
 ///                std::sync::Arc::new(risp::RispValue::Cons(std::sync::Arc::new(risp::RispValue::Int(2)),
@@ -205,21 +262,21 @@ fn transform_tree(pair: Pair<Rule>) -> RispValue {
 /// ```
 /// Brackes enclose a Cons pair
 /// ```
-/// assert_eq!(risp::read_risp("[1 2]").unwrap()[0],
+/// assert_eq!(risp::read("[1 2]").unwrap()[0],
 ///            risp::RispValue::Cons(std::sync::Arc::new(risp::RispValue::Int(1)),
 ///                                  std::sync::Arc::new(risp::RispValue::Int(2))));
 /// ```
 /// Whitespace includes spaces, tabs and line-ends (LF and CR).
 /// ```
-/// risp::read_risp("(fn foo (x y)\n\r\t(+ x y))").unwrap();
+/// risp::read("(fn foo (x y)\n\r\t(+ x y))").unwrap();
 /// ```
-/// risp::read_risp() returns a vector containing all s-expressions in the input
+/// risp::read() returns a vector containing all s-expressions in the input
 /// ```
-/// assert_eq!(risp::read_risp("1 two \"three\"").unwrap(), vec![risp::RispValue::Int(1),
+/// assert_eq!(risp::read("1 two \"three\"").unwrap(), vec![risp::RispValue::Int(1),
 ///                                                               risp::RispValue::Symbol(String::from("two")),
 ///                                                               risp::RispValue::String(String::from("three"))]);
 /// ```
-pub fn read_risp<'a>(text: &'a str) -> Result<Vec<RispValue>, Error<Rule>> {
+pub fn read<'a>(text: &'a str) -> Result<Vec<RispValue>, Error<Rule>> {
     let parse_result = RispParser::parse(Rule::sexprs, text)?.next().unwrap();
     Ok(parse_result.into_inner().map(transform_tree).collect())
 }
@@ -232,24 +289,24 @@ pub fn read_risp<'a>(text: &'a str) -> Result<Vec<RispValue>, Error<Rule>> {
 /// Scalars are left unchaged.
 /// ```
 /// let mut ctx = risp::BasicStaticContext::new();
-/// let se1 = risp::read_risp("123").unwrap();
+/// let se1 = risp::read("123").unwrap();
 /// assert_eq!(risp::compile(se1[0].clone(), &mut ctx).unwrap(), se1[0]);
-/// let se2 = risp::read_risp("123.456").unwrap();
+/// let se2 = risp::read("123.456").unwrap();
 /// assert_eq!(risp::compile(se2[0].clone(), &mut ctx).unwrap(), se2[0]);
-/// let se3 = risp::read_risp("\"123\"").unwrap();
+/// let se3 = risp::read("\"123\"").unwrap();
 /// assert_eq!(risp::compile(se3[0].clone(), &mut ctx).unwrap(), se3[0]);
 /// ```
 ///
 /// Global symbols are replaced with their underlying values.
 /// ```
-/// let se = risp::read_risp("foo").unwrap();
+/// let se = risp::read("foo").unwrap();
 /// let mut ctx = risp::BasicStaticContext::new();
 /// ctx.define_global(String::from("foo"), risp::RispValue::Int(2));
 /// assert_eq!(risp::compile(se[0].clone(), &mut ctx).unwrap(), risp::RispValue::Int(2));
 /// ```
 /// However, if the symbol exists in the `locals` set, it is left as-is.
 /// ```
-/// let se = risp::read_risp("foo").unwrap();
+/// let se = risp::read("foo").unwrap();
 /// let mut ctx = risp::BasicStaticContext::new();
 /// ctx.define_global(String::from("foo"), risp::RispValue::Int(2));
 /// let mut ctx2 = risp::DerivedStaticContext::new(&ctx);
@@ -258,14 +315,23 @@ pub fn read_risp<'a>(text: &'a str) -> Result<Vec<RispValue>, Error<Rule>> {
 /// ```
 /// If a symbol does not exist, a compilation error is returned.
 /// ```
-/// let se = risp::read_risp("foo").unwrap();
+/// let se = risp::read("foo").unwrap();
 /// let mut ctx = risp::BasicStaticContext::new();
-/// assert_eq!(risp::compile(se[0].clone(), &mut ctx), Err(risp::CompilationError::UndefinedSymbol(String::from("foo"))));
+/// assert_eq!(risp::compile(se[0].clone(), &mut ctx),
+///            Err(risp::CompilationError::UndefinedSymbol(String::from("foo"))));
 /// ```
 ///
 /// ## Macros and Special Forms
 ///
-/// Macros are functions that operate during compilation.
+/// Macros are functions that operate during compilation. They take
+/// the form (`RispValue`) to be process, a value that is always a
+/// list in which the macro name is the first element, and return
+/// another RispValue, typically a form to be executed at runtime. The
+/// form that is returned by a macro is then compiled again, so that
+/// if it contains macros, they are expanded.
+///
+/// Consider a hypothetical macro `annotate`, which takes at least one
+/// argument, and returns that one argument.
 pub fn compile(sexpr: RispValue, ctx: &mut StaticContext) -> Result<RispValue, CompilationError> {
     match sexpr {
         RispValue::Symbol(s) => {
@@ -281,3 +347,4 @@ pub fn compile(sexpr: RispValue, ctx: &mut StaticContext) -> Result<RispValue, C
         _ => Ok(sexpr),
     }
 }
+
