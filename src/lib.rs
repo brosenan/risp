@@ -25,12 +25,13 @@ pub enum RispValue {
     Cons(Arc<RispValue>, Arc<RispValue>),
 }
 
-/// An iterator for s-expressions.
-pub struct RispIter<'a> {
+/// An iterator for s-expressions. Does not consume the underlying
+/// list, and provides immutable references to the items.
+pub struct RispRefIter<'a> {
     curr: &'a RispValue,
 }
 
-impl<'a> Iterator for RispIter<'a> {
+impl<'a> Iterator for RispRefIter<'a> {
     type Item = &'a RispValue;
     fn next(&mut self) -> Option<Self::Item> {
         match self.curr {
@@ -56,8 +57,8 @@ impl RispValue {
     /// assert_eq!(i.next(), Some(&RispValue::Int(3)));
     /// assert_eq!(i.next(), None);
     /// ```
-    pub fn iter<'a>(&'a self) -> RispIter<'a> {
-        RispIter{curr: self}
+    pub fn iter<'a>(&'a self) -> RispRefIter<'a> {
+        RispRefIter{curr: self}
     }
 
     /// Returns the length of a list.
@@ -387,11 +388,11 @@ pub fn read<'a>(text: &'a str) -> Result<Vec<RispValue>, Error<Rule>> {
 /// ```
 /// let mut ctx = risp::BasicStaticContext::new();
 /// let se1 = risp::read("123").unwrap();
-/// assert_eq!(risp::compile(se1[0].clone(), &mut ctx).unwrap(), se1[0]);
+/// assert_eq!(risp::compile(se1[0].clone(), &ctx).unwrap(), se1[0]);
 /// let se2 = risp::read("123.456").unwrap();
-/// assert_eq!(risp::compile(se2[0].clone(), &mut ctx).unwrap(), se2[0]);
+/// assert_eq!(risp::compile(se2[0].clone(), &ctx).unwrap(), se2[0]);
 /// let se3 = risp::read("\"123\"").unwrap();
-/// assert_eq!(risp::compile(se3[0].clone(), &mut ctx).unwrap(), se3[0]);
+/// assert_eq!(risp::compile(se3[0].clone(), &ctx).unwrap(), se3[0]);
 /// ```
 ///
 /// Global symbols are replaced with their underlying values.
@@ -399,7 +400,7 @@ pub fn read<'a>(text: &'a str) -> Result<Vec<RispValue>, Error<Rule>> {
 /// let se = risp::read("foo").unwrap();
 /// let mut ctx = risp::BasicStaticContext::new();
 /// ctx.define_global(String::from("foo"), risp::RispValue::Int(2));
-/// assert_eq!(risp::compile(se[0].clone(), &mut ctx).unwrap(), risp::RispValue::Int(2));
+/// assert_eq!(risp::compile(se[0].clone(), &ctx).unwrap(), risp::RispValue::Int(2));
 /// ```
 /// However, if the symbol exists as a local symbol, it is left as-is.
 /// ```
@@ -408,13 +409,13 @@ pub fn read<'a>(text: &'a str) -> Result<Vec<RispValue>, Error<Rule>> {
 /// ctx.define_global(String::from("foo"), risp::RispValue::Int(2));
 /// let mut ctx2 = risp::DerivedStaticContext::new(&ctx);
 /// ctx2.add_local(String::from("foo"));
-/// assert_eq!(risp::compile(se[0].clone(), &mut ctx2).unwrap(), se[0]);
+/// assert_eq!(risp::compile(se[0].clone(), &ctx2).unwrap(), se[0]);
 /// ```
 /// If a symbol does not exist, a compilation error is returned.
 /// ```
 /// let se = risp::read("foo").unwrap();
 /// let mut ctx = risp::BasicStaticContext::new();
-/// assert_eq!(risp::compile(se[0].clone(), &mut ctx),
+/// assert_eq!(risp::compile(se[0].clone(), &ctx),
 ///            Err(risp::CompilationError::UndefinedSymbol(String::from("foo"))));
 /// ```
 ///
@@ -443,13 +444,35 @@ pub fn read<'a>(text: &'a str) -> Result<Vec<RispValue>, Error<Rule>> {
 ///     Ok(form[1].clone())
 /// }));
 /// let program = read("(annotate 1 2 3 4)").unwrap();
-/// assert_eq!(compile(program[0].clone(), &mut ctx).unwrap(), RispValue::Int(1));
+/// assert_eq!(compile(program[0].clone(), &ctx).unwrap(), RispValue::Int(1));
 /// ```
-pub fn compile(sexpr: RispValue, ctx: &mut StaticContext) -> Result<RispValue, CompilationError> {
+///
+/// ## Other Forms
+///
+/// Forms (lists) that are not macros are processed recursively.
+/// ```
+/// use risp::*;
+/// let program1 = read("(a (b c))").unwrap();
+/// let program2 = read("(1 (2 3))").unwrap();
+/// let mut ctx = BasicStaticContext::new();
+/// ctx.define_global(String::from("a"), RispValue::Int(1));
+/// ctx.define_global(String::from("b"), RispValue::Int(2));
+/// ctx.define_global(String::from("c"), RispValue::Int(3));
+///
+/// assert_eq!(compile(program1[0].clone(), &ctx).unwrap(), program2[0]);
+/// ```
+pub fn compile(sexpr: RispValue, ctx: &StaticContext) -> Result<RispValue, CompilationError> {
     if sexpr.is_list() {
         if let Some(s) = get_initial_symbol(&sexpr)? {
-            let m = ctx.get_macro(&s).unwrap();
-            m(sexpr)
+            if let Some(m) = ctx.get_macro(&s) {
+                m(sexpr)
+            } else {
+                let mut result_vec : Vec<RispValue> = vec![];
+                for x in sexpr.iter() {
+                    result_vec.push(compile(x.clone(), ctx)?);
+                }
+                Ok(result_vec.into_iter().collect())
+            }
         } else {
             unreachable!()
         }
