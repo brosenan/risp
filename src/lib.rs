@@ -136,6 +136,48 @@ impl RispValue {
         }
     }
 
+    /// Returns a reference to the first element of a list, or `None`
+    /// for non-lists or empty lists.
+    /// ```
+    /// use risp::*;
+    /// let l = read("(1 2 3 4)").unwrap()[0].clone();
+    /// assert_eq!(l.first(), Some(&RispValue::Int(1)));
+    /// ```
+    pub fn first(&self) -> Option<&RispValue> {
+        match self {
+            RispValue::Cons(item, _) => Some(item),
+            _ => None,
+        }
+    }
+
+    /// Returns a reference to the nth element of a list, or `None`
+    /// for non-lists or lists with less than n+1 elements.
+    /// ```
+    /// use risp::*;
+    /// let l = read("(1 2 3 4)").unwrap()[0].clone();
+    /// assert_eq!(l.nth(2), Some(&RispValue::Int(3)));
+    /// ```
+    pub fn nth(&self, n: usize) -> Option<&RispValue> {
+        self.iter().skip(n).next()
+    }
+
+    /// Returns a reference to last element of a list, or `None` for
+    /// non-lists or empty lists.
+    /// ```
+    /// use risp::*;
+    /// let l = read("(1 2 3 4)").unwrap()[0].clone();
+    /// assert_eq!(l.last(), Some(&RispValue::Int(4)));
+    /// ```
+    pub fn last(&self) -> Option<&RispValue> {
+        let mut curr = self;
+        let mut res = None;
+        while let RispValue::Cons(item, next) = curr {
+            res = Some(item.deref());
+            curr = next;
+        }
+        res
+    }
+
     /// Returns a reference to the underlying string, if this value is
     /// a symbol, or None otherwise.
     /// ```
@@ -197,7 +239,38 @@ impl RispValue {
     /// let expr3 = read("(1 (2 3) 4)").unwrap()[0].clone();
     /// assert_eq!(expr3.match_pattern(&pattern), None);
     /// ```
-    pub fn match_pattern(&self, pattern: &RispValue) -> Option<HashMap<String, RispValue>> {
+    ///
+    /// If the list ends with an ellipsis (`...`), the element just
+    /// before the ellipsis is matched against the rest of the
+    /// list. For example, the pattern `(a b c ...)` will match lists
+    /// of length 2 or more, having `c` match a list containing the
+    /// rest of the elements in the expression. For example, in the
+    /// expression `(1 2 3 4 5)`, `a` will be bound to `1`, `b` will
+    /// be bound to `2`, and `c` will be bound to `(3 4 5)`.
+    /// ```
+    /// use risp::*;
+    /// use std::collections::*;
+    /// let pattern = read("(a b c ...)").unwrap()[0].clone();
+    /// let expr1 = read("(1 2 3 4 5)").unwrap()[0].clone();
+    ///
+    /// let mut expected = HashMap::new();
+    /// expected.insert(String::from("a"), RispValue::Int(1));
+    /// expected.insert(String::from("b"), RispValue::Int(2));
+    /// expected.insert(String::from("c"), vec![3, 4, 5].iter().map(|x| RispValue::Int(x.clone())).collect());
+    /// assert_eq!(expr1.match_pattern(&pattern), Some(expected));
+    /// ```
+    ///
+    /// The special form `quote` matches its content by equality. For
+    /// example, the pattern `(quote a)` will only match the symbol
+    /// `a`.
+    /// ```
+    /// use risp::*;
+    /// use std::collections::*;
+    /// let pattern = read("(quote a)").unwrap()[0].clone();
+    /// assert_eq!(RispValue::Symbol(String::from("a")).match_pattern(&pattern),
+    ///            Some(HashMap::new()));
+    /// ```
+        pub fn match_pattern(&self, pattern: &RispValue) -> Option<HashMap<String, RispValue>> {
         if let Some(s) = pattern.as_symbol() {
             let mut res = HashMap::new();
             res.insert(s.clone(), self.clone());
@@ -215,6 +288,18 @@ impl RispValue {
                         }
                     }
                 })
+        } else if pattern.is_list() && self.is_list() && pattern.last() == Some(&RispValue::Symbol(String::from("..."))) && self.len() >= pattern.len() - 2 {
+            let base_len = pattern.len() - 2;
+            let rest: RispValue = self.iter().skip(base_len).map(|x| x.clone()).collect();
+            let alt_expr: RispValue = self.iter().take(base_len).map(|x| x.clone()).chain(vec![rest].into_iter()).collect();
+            let alt_pat: RispValue = pattern.iter().take(base_len + 1).map(|x| x.clone()).collect();
+            alt_expr.match_pattern(&alt_pat)
+        } else if pattern.is_list() && pattern.len() == 2 && pattern.first() == Some(&RispValue::Symbol(String::from("quote"))) {
+            if self == pattern.nth(1).unwrap() {
+                Some(HashMap::new())
+            } else {
+                None
+            }   
         } else if self == pattern {
             Some(HashMap::new())
         } else {
