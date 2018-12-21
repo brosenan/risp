@@ -2,6 +2,8 @@ extern crate pest;
 #[macro_use]
 extern crate pest_derive;
 
+pub mod builtins;
+
 //use pest::{Parser};
 use pest::error::Error;
 use pest::Parser;
@@ -131,6 +133,92 @@ impl RispValue {
             RispValue::Nil => true,
             RispValue::Cons(_, next) => next.is_list(),
             _ => false,
+        }
+    }
+
+    /// Returns a reference to the underlying string, if this value is
+    /// a symbol, or None otherwise.
+    /// ```
+    /// use risp::*;
+    /// assert_eq!(RispValue::Int(2).as_symbol(), None);
+    /// assert_eq!(RispValue::Symbol(String::from("foo")).as_symbol(),
+    ///            Some(&String::from("foo")));
+    /// ```
+    pub fn as_symbol(&self) -> Option<&String> {
+        if let RispValue::Symbol(s) = self {
+            Some(s)
+        } else {
+            None
+        }
+    }
+
+    /// Matches this expression against a given pattern. On a
+    /// successful match, returns a map of bindings acquired in the
+    /// process. On a failed match, returns None.
+    ///
+    /// Matching against a scalar value returns an empty binding if
+    /// the value is equal to the expression.
+    /// ```
+    /// use risp::*;
+    /// use std::collections::*;
+    /// assert_eq!(RispValue::Int(2).match_pattern(&RispValue::Int(3)), None);
+    /// assert_eq!(RispValue::Int(3).match_pattern(&RispValue::Int(3)),
+    ///            Some(HashMap::new()));
+    /// ```
+    ///
+    /// Matching anything against a symbol returns a binding in which
+    /// the symbol's undrelying string maps to the expression.
+    /// ```
+    /// use risp::*;
+    /// use std::collections::*;
+    /// let mut expected = HashMap::new();
+    /// expected.insert(String::from("foo"), RispValue::Int(3));
+    /// assert_eq!(RispValue::Int(3).match_pattern(&RispValue::Symbol(String::from("foo"))),
+    ///            Some(expected));
+    /// ```
+    ///
+    /// List are recurred into.
+    /// ```
+    /// use risp::*;
+    /// use std::collections::*;
+    /// let pattern = read("(a (b c))").unwrap()[0].clone();
+    /// let expr1 = read("(1 (2 3))").unwrap()[0].clone();
+    ///
+    /// let mut expected = HashMap::new();
+    /// expected.insert(String::from("a"), RispValue::Int(1));
+    /// expected.insert(String::from("b"), RispValue::Int(2));
+    /// expected.insert(String::from("c"), RispValue::Int(3));
+    /// assert_eq!(expr1.match_pattern(&pattern), Some(expected));
+    ///
+    /// let expr2 = read("(1 2)").unwrap()[0].clone();
+    /// assert_eq!(expr2.match_pattern(&pattern), None);
+    ///
+    /// // Lists have to be of the exact same size to match the pattern.
+    /// let expr3 = read("(1 (2 3) 4)").unwrap()[0].clone();
+    /// assert_eq!(expr3.match_pattern(&pattern), None);
+    /// ```
+    pub fn match_pattern(&self, pattern: &RispValue) -> Option<HashMap<String, RispValue>> {
+        if let Some(s) = pattern.as_symbol() {
+            let mut res = HashMap::new();
+            res.insert(s.clone(), self.clone());
+            Some(res)
+        } else if pattern.is_list() && self.is_list() && pattern.len() == self.len() {
+            self.iter().zip(pattern.iter())
+                .map(|(expr, p)| expr.match_pattern(p))
+                .fold(Some(HashMap::new()), |acc, res| {
+                    match (acc, res) {
+                        (None, _) => None,
+                        (_, None) => None,
+                        (Some(mut acc_bind), Some(res_bind)) => {
+                            acc_bind.extend(res_bind);
+                            Some(acc_bind)
+                        }
+                    }
+                })
+        } else if self == pattern {
+            Some(HashMap::new())
+        } else {
+            None
         }
     }
 }
@@ -500,3 +588,4 @@ fn get_initial_symbol(sexpr: &RispValue) -> Result<Option<String>, CompilationEr
         Ok(None)
     }
 }
+
