@@ -8,7 +8,8 @@ chars = @{ char* }
 char = { (!("\"" | "\\") ~ ANY) | ("\\" ~ ANY) }
 list = { "(" ~ sexpr* ~ ")" }
 pair = { "[" ~ sexpr ~ sexpr ~ "]" }
-sexpr = _{ (int | float | symbol | string | list | pair) }
+quoted = { "'" ~ sexpr }
+sexpr = _{ (int | float | symbol | string | list | pair | quoted) }
 sexprs = { sexpr* }
 WHITESPACE = _{" " | "\n" | "\r" | "\t"}
 

@@ -674,6 +674,18 @@
 <span id="674">674</span>
 <span id="675">675</span>
 <span id="676">676</span>
+<span id="677">677</span>
+<span id="678">678</span>
+<span id="679">679</span>
+<span id="680">680</span>
+<span id="681">681</span>
+<span id="682">682</span>
+<span id="683">683</span>
+<span id="684">684</span>
+<span id="685">685</span>
+<span id="686">686</span>
+<span id="687">687</span>
+<span id="688">688</span>
 </pre><div class="example-wrap"><pre class="rust ">
 <span class="kw">extern</span> <span class="kw">crate</span> <span class="ident">pest</span>;
 <span class="attribute">#[<span class="ident">macro_use</span>]</span>
@@ -938,12 +950,12 @@
     <span class="doccomment">/// ```</span>
     <span class="doccomment">///</span>
     <span class="doccomment">/// The special form `quote` matches its content by equality. For</span>
-    <span class="doccomment">/// example, the pattern `(quote a)` will only match the symbol</span>
+    <span class="doccomment">/// example, the pattern `&#39;a` (or `(quote a)` will only match the symbol</span>
     <span class="doccomment">/// `a`.</span>
     <span class="doccomment">/// ```</span>
     <span class="doccomment">/// use risp::*;</span>
     <span class="doccomment">/// use std::collections::*;</span>
-    <span class="doccomment">/// let pattern = read(&quot;(quote a)&quot;).unwrap()[0].clone();</span>
+    <span class="doccomment">/// let pattern = read(&quot;&#39;a&quot;).unwrap()[0].clone();</span>
     <span class="doccomment">/// assert_eq!(RispValue::Symbol(String::from(&quot;a&quot;)).match_pattern(&amp;pattern),</span>
     <span class="doccomment">///            Some(HashMap::new()));</span>
     <span class="doccomment">/// ```</span>
@@ -1166,6 +1178,9 @@
             <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">elems</span> <span class="op">=</span> <span class="ident">pair</span>.<span class="ident">into_inner</span>().<span class="ident">map</span>(<span class="ident">transform_tree</span>);
             <span class="ident">RispValue</span>::<span class="ident">Cons</span>(<span class="ident">Arc</span>::<span class="ident">new</span>(<span class="ident">elems</span>.<span class="ident">next</span>().<span class="ident">unwrap</span>()), <span class="ident">Arc</span>::<span class="ident">new</span>(<span class="ident">elems</span>.<span class="ident">next</span>().<span class="ident">unwrap</span>()))
         },
+        <span class="ident">Rule</span>::<span class="ident">quoted</span> <span class="op">=&gt;</span> <span class="ident">RispValue</span>::<span class="ident">Cons</span>(<span class="ident">Arc</span>::<span class="ident">new</span>(<span class="ident">RispValue</span>::<span class="ident">Symbol</span>(<span class="ident">String</span>::<span class="ident">from</span>(<span class="string">&quot;quote&quot;</span>))),
+                                        <span class="ident">Arc</span>::<span class="ident">new</span>(<span class="ident">RispValue</span>::<span class="ident">Cons</span>(<span class="ident">Arc</span>::<span class="ident">new</span>(<span class="ident">transform_tree</span>(<span class="ident">pair</span>.<span class="ident">into_inner</span>().<span class="ident">next</span>().<span class="ident">unwrap</span>())),
+                                                                 <span class="ident">Arc</span>::<span class="ident">new</span>(<span class="ident">RispValue</span>::<span class="ident">Nil</span>)))),
         <span class="ident">Rule</span>::<span class="ident">decimal</span> <span class="op">|</span> <span class="ident">Rule</span>::<span class="ident">symbol_start_char</span> <span class="op">|</span> <span class="ident">Rule</span>::<span class="ident">chars</span> <span class="op">|</span> <span class="ident">Rule</span>::<span class="ident">char</span> <span class="op">|</span> <span class="ident">Rule</span>::<span class="ident">WHITESPACE</span>
             <span class="op">|</span> <span class="ident">Rule</span>::<span class="ident">sexpr</span> <span class="op">|</span> <span class="ident">Rule</span>::<span class="ident">sexprs</span> <span class="op">=&gt;</span> <span class="macro">unreachable</span><span class="macro">!</span>(),
     }
@@ -1214,6 +1229,14 @@
 <span class="doccomment">///            risp::RispValue::Cons(std::sync::Arc::new(risp::RispValue::Int(1)),</span>
 <span class="doccomment">///                                  std::sync::Arc::new(risp::RispValue::Int(2))));</span>
 <span class="doccomment">/// ```</span>
+<span class="doccomment">/// A single quote (`&#39;`) prefixing an s-expressions constructs a `quote` special form.</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// use risp::*;</span>
+<span class="doccomment">/// use std::sync::Arc;</span>
+<span class="doccomment">/// assert_eq!(read(&quot;&#39;(a b c)&quot;).unwrap()[0],</span>
+<span class="doccomment">///            read(&quot;(quote (a b c))&quot;).unwrap()[0]);</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
 <span class="doccomment">/// Whitespace includes spaces, tabs and line-ends (LF and CR).</span>
 <span class="doccomment">/// ```</span>
 <span class="doccomment">/// risp::read(&quot;(fn foo (x y)\n\r\t(+ x y))&quot;).unwrap();</span>
@@ -1224,6 +1247,7 @@
 <span class="doccomment">///                                                               risp::RispValue::Symbol(String::from(&quot;two&quot;)),</span>
 <span class="doccomment">///                                                               risp::RispValue::String(String::from(&quot;three&quot;))]);</span>
 <span class="doccomment">/// ```</span>
+
 <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">read</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span>(<span class="ident">text</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">str</span>) <span class="op">-&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">RispValue</span><span class="op">&gt;</span>, <span class="ident">Error</span><span class="op">&lt;</span><span class="ident">Rule</span><span class="op">&gt;&gt;</span> {
     <span class="kw">let</span> <span class="ident">parse_result</span> <span class="op">=</span> <span class="ident">RispParser</span>::<span class="ident">parse</span>(<span class="ident">Rule</span>::<span class="ident">sexprs</span>, <span class="ident">text</span>)<span class="question-mark">?</span>.<span class="ident">next</span>().<span class="ident">unwrap</span>();
     <span class="prelude-val">Ok</span>(<span class="ident">parse_result</span>.<span class="ident">into_inner</span>().<span class="ident">map</span>(<span class="ident">transform_tree</span>).<span class="ident">collect</span>())

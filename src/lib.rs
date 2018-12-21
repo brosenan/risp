@@ -261,12 +261,12 @@ impl RispValue {
     /// ```
     ///
     /// The special form `quote` matches its content by equality. For
-    /// example, the pattern `(quote a)` will only match the symbol
+    /// example, the pattern `'a` (or `(quote a)` will only match the symbol
     /// `a`.
     /// ```
     /// use risp::*;
     /// use std::collections::*;
-    /// let pattern = read("(quote a)").unwrap()[0].clone();
+    /// let pattern = read("'a").unwrap()[0].clone();
     /// assert_eq!(RispValue::Symbol(String::from("a")).match_pattern(&pattern),
     ///            Some(HashMap::new()));
     /// ```
@@ -489,6 +489,9 @@ fn transform_tree(pair: Pair<Rule>) -> RispValue {
             let mut elems = pair.into_inner().map(transform_tree);
             RispValue::Cons(Arc::new(elems.next().unwrap()), Arc::new(elems.next().unwrap()))
         },
+        Rule::quoted => RispValue::Cons(Arc::new(RispValue::Symbol(String::from("quote"))),
+                                        Arc::new(RispValue::Cons(Arc::new(transform_tree(pair.into_inner().next().unwrap())),
+                                                                 Arc::new(RispValue::Nil)))),
         Rule::decimal | Rule::symbol_start_char | Rule::chars | Rule::char | Rule::WHITESPACE
             | Rule::sexpr | Rule::sexprs => unreachable!(),
     }
@@ -537,6 +540,14 @@ fn transform_tree(pair: Pair<Rule>) -> RispValue {
 ///            risp::RispValue::Cons(std::sync::Arc::new(risp::RispValue::Int(1)),
 ///                                  std::sync::Arc::new(risp::RispValue::Int(2))));
 /// ```
+/// A single quote (`'`) prefixing an s-expressions constructs a `quote` special form.
+/// ```
+/// use risp::*;
+/// use std::sync::Arc;
+/// assert_eq!(read("'(a b c)").unwrap()[0],
+///            read("(quote (a b c))").unwrap()[0]);
+/// ```
+///
 /// Whitespace includes spaces, tabs and line-ends (LF and CR).
 /// ```
 /// risp::read("(fn foo (x y)\n\r\t(+ x y))").unwrap();
@@ -547,6 +558,7 @@ fn transform_tree(pair: Pair<Rule>) -> RispValue {
 ///                                                               risp::RispValue::Symbol(String::from("two")),
 ///                                                               risp::RispValue::String(String::from("three"))]);
 /// ```
+
 pub fn read<'a>(text: &'a str) -> Result<Vec<RispValue>, Error<Rule>> {
     let parse_result = RispParser::parse(Rule::sexprs, text)?.next().unwrap();
     Ok(parse_result.into_inner().map(transform_tree).collect())
