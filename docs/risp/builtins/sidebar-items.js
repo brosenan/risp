@@ -1,1 +1,1 @@
-initSidebarItems({});
+initSidebarItems({"fn":[["fn_macro","The function macro (bound to `fn`) takes a function form that has the following elements: 1. The `fn` symbol, 2. An optional symbol providing the function's name for recursive calls, 3. A list of arguments, 4. Zero or more silent expressions, that are evaluated for their side-effects, and 5. A last expression that is evaluated to produce the return value."],["install_builtins","Installs all builtins to the given static context"]]});

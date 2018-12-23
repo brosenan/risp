@@ -2,9 +2,6 @@ extern crate pest;
 #[macro_use]
 extern crate pest_derive;
 
-pub mod builtins;
-
-//use pest::{Parser};
 use pest::error::Error;
 use pest::Parser;
 use pest::iterators::Pair;
@@ -25,6 +22,33 @@ pub enum RispValue {
     String(String),
     Nil,
     Cons(Arc<RispValue>, Arc<RispValue>),
+    Fn(RispFunc),
+}
+
+#[derive(Clone)]
+pub struct RispFunc {
+    func: Arc<Fn(&RispValue)->Result<RispValue, CompilationError>>
+}
+
+impl RispFunc {
+    pub fn new(func: Arc<Fn(&RispValue)->Result<RispValue, CompilationError>>) -> Self {
+        RispFunc{func}
+    }
+    pub fn call(&self, args: &RispValue) -> Result<RispValue, CompilationError> {
+        (self.func)(args)
+    }
+}
+
+impl std::fmt::Debug for RispFunc {
+    fn fmt(&self, foo: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        Ok(())
+    }
+}
+
+impl PartialEq for RispFunc {
+    fn eq(&self, other: &Self) -> bool {
+        false
+    }
 }
 
 /// An iterator for s-expressions. Does not consume the underlying
@@ -270,7 +294,7 @@ impl RispValue {
     /// assert_eq!(RispValue::Symbol(String::from("a")).match_pattern(&pattern),
     ///            Some(HashMap::new()));
     /// ```
-        pub fn match_pattern(&self, pattern: &RispValue) -> Option<HashMap<String, RispValue>> {
+    pub fn match_pattern(&self, pattern: &RispValue) -> Option<HashMap<String, RispValue>> {
         if let Some(s) = pattern.as_symbol() {
             let mut res = HashMap::new();
             res.insert(s.clone(), self.clone());
@@ -304,6 +328,59 @@ impl RispValue {
             Some(HashMap::new())
         } else {
             None
+        }
+    }
+
+    /// If called on a function value, calls the function with the
+    /// given argument list.
+    /// ```
+    /// use risp::*;
+    /// use std::sync::Arc;
+    /// let ret = RispValue::Fn(RispFunc::new(Arc::new(|args| {
+    ///     if let Some(x) = args.first() {
+    ///         Ok(x.clone())
+    ///     } else {
+    ///         Err(CompilationError::ArityMismatch(1, 0))
+    ///     }
+    /// }))).call(&vec![RispValue::Int(1)].into_iter().collect());
+    /// assert_eq!(ret, Ok(RispValue::Int(1)));
+    /// ```
+    ///
+    /// When not called on a function, `call` returns a `TypeMismatch`
+    /// error.
+    /// ```
+    /// use risp::*;
+    /// use std::sync::Arc;
+    /// let ret = RispValue::Nil.call(&vec![RispValue::Int(1)].into_iter().collect());
+    /// assert_eq!(ret, Err(CompilationError::TypeMismatch(String::from("function"), String::from("Nil"))));
+    /// ```
+    pub fn call(&self, args: &RispValue) -> Result<RispValue, CompilationError> {
+        match self {
+            RispValue::Fn(func) => func.call(args),
+            _ => Err(CompilationError::TypeMismatch(String::from("function"), format!("{:?}", self))),
+        }
+    }
+
+    /// Evaluates an expression based on the given variable bindings.
+    ///
+    /// A symbol is evaluated by looking it up in the bindings.
+    /// ```
+    /// use risp::*;
+    /// use std::collections::HashMap;
+    /// let mut b = HashMap::new();
+    /// b.insert(String::from("foo"), RispValue::Int(2));
+    /// let ctx0 = BasicDynamicContext::new();
+    /// let ctx = DerivedDynamicContext::new(&ctx0, b);
+    /// 
+    /// assert_eq!(RispValue::Symbol(String::from("foo")).eval(&ctx),
+    ///            Ok(RispValue::Int(2)));
+    /// ```
+    pub fn eval(&self, ctx: &DynamicContext) -> Result<RispValue, CompilationError> {
+        match self {
+            RispValue::Symbol(s) => ctx.lookup(s)
+                .map(|x| x.clone())
+                .ok_or(CompilationError::UndefinedSymbol(s.clone())),
+            _ => unreachable!()
         }
     }
 }
@@ -432,10 +509,82 @@ impl<'a> StaticContext for DerivedStaticContext<'a> {
     }
 }
 
+/// The context of an evaluation
+pub trait DynamicContext {
+    /// Lookup the value assiciated with a symbol.
+    fn lookup(&self, symbol: &String) -> Option<&RispValue>;
+}
+
+/// A dynamic context with no symbols defined
+pub struct BasicDynamicContext {}
+
+impl BasicDynamicContext {
+    pub fn new() -> Self {
+        BasicDynamicContext{}
+    }
+}
+
+impl DynamicContext for BasicDynamicContext {
+    /// `BasicDynamicContext` has no symbols to look-up.
+    /// ```
+    /// use risp::*;
+    /// let ctx = BasicDynamicContext::new();
+    /// assert_eq!(ctx.lookup(&String::from("foo")), None);
+    /// ```
+    fn lookup(&self, symbol: &String) -> Option<&RispValue> {
+        None
+    }
+}
+
+/// A derived dynamic context, adds bindings in a `HashMap` to an
+/// existing `DynamicContext`.
+pub struct DerivedDynamicContext<'a> {
+    base: &'a DynamicContext,
+    bindings: HashMap<String, RispValue>,
+}
+
+impl<'a> DerivedDynamicContext<'a> {
+    pub fn new(base: &'a DynamicContext, bindings: HashMap<String, RispValue>) -> Self {
+        DerivedDynamicContext{base, bindings}
+    }
+}
+
+impl<'a> DynamicContext for DerivedDynamicContext<'a> {
+    /// Lookup works according to the following priorities:
+    /// 1. The given `HashMap`.
+    /// 2. The base context.
+    /// 3. Returns `None`.
+    /// ```
+    /// use risp::*;
+    /// use std::collections::HashMap;
+    /// let ctx0 = BasicDynamicContext::new();
+    ///
+    /// let mut m1 = HashMap::new();
+    /// m1.insert(String::from("foo"), RispValue::Int(1));
+    /// m1.insert(String::from("bar"), RispValue::Int(2));
+    /// let ctx1 = DerivedDynamicContext::new(&ctx0, m1);
+    ///
+    /// let mut m2 = HashMap::new();
+    /// m2.insert(String::from("foo"), RispValue::Int(3));
+    /// let ctx2 = DerivedDynamicContext::new(&ctx1, m2);
+    ///
+    /// // foo is found in both ctx1 and ctx2, but the value in ctx2
+    /// // is preferred.
+    /// assert_eq!(ctx2.lookup(&String::from("foo")), Some(&RispValue::Int(3)));
+    ///
+    /// // bar is only found in the base context. It is searched as a fallback.
+    /// assert_eq!(ctx2.lookup(&String::from("bar")), Some(&RispValue::Int(2)));
+    /// ```
+    fn lookup(&self, symbol: &String) -> Option<&RispValue> {
+        self.bindings.get(symbol).or_else(|| self.base.lookup(symbol))
+    }
+}
+
 #[derive(Debug,PartialEq)]
 pub enum CompilationError {
     UndefinedSymbol(String),
     ArityMismatch(usize, usize),
+    TypeMismatch(String, String),
 }
 
 fn unescape_char(c: char) -> char {
@@ -686,3 +835,4 @@ fn get_initial_symbol(sexpr: &RispValue) -> Result<Option<String>, CompilationEr
     }
 }
 
+pub mod builtins;
